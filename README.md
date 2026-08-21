@@ -23,7 +23,7 @@ sekcja 9b.
 ## Instalacja
 
 ```bash
-npm i "@budowalka/baner-zgody@github:Budowalka/budowalka-consent#v1.0.0"
+npm i "@budowalka/baner-zgody@github:Budowalka/budowalka-consent#v1.0.2"
 ```
 
 Paczka nie idzie przez żaden rejestr — repo jest publiczne, więc instalacja
@@ -111,11 +111,20 @@ kontraktBaneraZgody({
 });
 ```
 
-Dwadzieścia testów: pomiar zamiast stałej, zwalnianie miejsca po decyzji
+Dwadzieścia jeden testów: pomiar zamiast stałej, zwalnianie miejsca po decyzji
 i po odmontowaniu, sprzątanie po `ResizeObserver`, ponowienie zgody
 u powracającego, kolejność przycisków w DOM, obecność w HTML z serwera,
 limit słów — oraz sprawdzenie, czy **arkusz landingu naprawdę dolicza
 `var(--consent-h)`** i czy skrypt inline używa tego samego klucza.
+
+Testy chodzą w jsdom, więc landing potrzebuje w `vitest.config.ts`:
+
+```ts
+export default defineConfig({ test: { environment: 'jsdom' } });
+```
+
+Nic więcej — zestaw nie wymaga Testing Library ani żadnej konfiguracji esbuilda.
+Sprawdzone na vitest 3 i 4 (obie wersje są u nas w użyciu) oraz na Next 15 i 16.
 
 ### 5. Pomiar w przeglądarce, na buildzie produkcyjnym
 
