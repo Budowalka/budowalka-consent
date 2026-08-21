@@ -10,7 +10,15 @@
 }
 
 .quiz {
-  padding-bottom: calc(24px + var(--consent-h, 0px));
+  padding: 24px 16px calc(24px + var(--consent-h, 0px));
+}
+
+/* ⚠ Ta reguła jest w fixture celowo: to tutaj rezerwa najczęściej ginie.
+   Skrót `padding` w media query kasuje doliczenie z reguły bazowej. */
+@media (max-width: 620px) {
+  .quiz {
+    padding: 16px 12px calc(16px + var(--consent-h, 0px));
+  }
 }
 
 .quiz-nawigacja {

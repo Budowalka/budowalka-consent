@@ -23,7 +23,7 @@ sekcja 9b.
 ## Instalacja
 
 ```bash
-npm i "@budowalka/baner-zgody@github:Budowalka/budowalka-consent#v1.0.2"
+npm i "@budowalka/baner-zgody@github:Budowalka/budowalka-consent#v1.1.0"
 ```
 
 Paczka nie idzie przez żaden rejestr — repo jest publiczne, więc instalacja
@@ -104,14 +104,32 @@ import { kontraktBaneraZgody } from '@budowalka/baner-zgody/testy';
 kontraktBaneraZgody({
   element: () => createElement(BanerZgody, { klucz: 'nazwaklienta_consent' }),
   klucz: 'nazwaklienta_consent',
-  sciezkaCss: 'src/app/globals.css',
   sciezkaLayoutu: 'src/app/layout.tsx',
-  selektoryRezerwy: ['.quiz', '.quiz-nawigacja'],
+  sciezkaZapasu: 'src/app/globals.css',
+  rezerwa: [
+    // landing z własnym CSS: reguła w arkuszu
+    { plik: 'src/app/globals.css', selektor: '.quiz' },
+    { plik: 'src/app/globals.css', selektor: '.quiz-nawigacja' },
+  ],
   wysokoscNaTelefonie: 87,
 });
 ```
 
-Dwadzieścia jeden testów: pomiar zamiast stałej, zwalnianie miejsca po decyzji
+`rezerwa` ma dwa kształty, bo mamy dwa rodzaje landingów:
+
+| Landing | Zapis | Uwaga |
+|---|---|---|
+| własny CSS | `{ plik, selektor }` | plik nie musi być arkuszem — u Termo-Fasad style siedzą w stałej `STYLE` wewnątrz komponentu i skan działa tak samo |
+| Tailwind | `{ plik, wzorzec }` | rezerwa jest klasą arbitralną w JSX: `{ plik: 'src/app/kalkulator/page.tsx', wzorzec: /pb-\[calc\([^\]]*var\(--consent-h[^\]]*\]/ }` |
+
+⚠ Przy wariancie z selektorem kontrakt sprawdza **każdą** regułę tego selektora,
+która rusza dolny odstęp — także tę z media query. Doliczenie rezerwy wyłącznie
+w regule bazowej wygląda na zrobione, a skrót `padding` z media query kasuje ją
+dokładnie na telefonie. Przy wariancie z wzorcem celuj w sam kawałek doliczający,
+nie w komentarz obok — komentarze o `--consent-h` są w tych plikach i goły grep
+po nazwie zmiennej przeszedłby mimo skasowania klasy.
+
+Zestaw testów: pomiar zamiast stałej, zwalnianie miejsca po decyzji
 i po odmontowaniu, sprzątanie po `ResizeObserver`, ponowienie zgody
 u powracającego, kolejność przycisków w DOM, obecność w HTML z serwera,
 limit słów — oraz sprawdzenie, czy **arkusz landingu naprawdę dolicza

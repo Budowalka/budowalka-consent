@@ -1,6 +1,6 @@
 {
   "name": "@budowalka/baner-zgody",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Baner zgody na ciasteczka (Consent Mode v2) dla landingów kalkulatorowych Budowalki — mierzy własną wysokość i publikuje ją jako --consent-h, żeby nie zasłaniać przycisków.",
   "license": "UNLICENSED",
   "repository": {

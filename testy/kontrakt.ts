@@ -30,6 +30,21 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { ZMIENNA_WYSOKOSCI, ATRYBUT_ZGODY, ZAPAS_DOMYSLNY, LIMIT_SLOW } from '../src/stale';
 
+/**
+ * Gdzie landing dolicza rezerwę. Dwa kształty, bo mamy dwa rodzaje landingów:
+ *
+ *  - `selektor` — reguła CSS w podanym pliku. Plik nie musi być arkuszem:
+ *    u Termo-Fasad style strony kalkulatora żyją w stałej `STYLE` wewnątrz
+ *    komponentu i skan po tekście działa tam tak samo.
+ *  - `wzorzec` — dla landingów tailwindowych, gdzie rezerwa jest klasą
+ *    arbitralną w JSX (`pb-[calc(120px+var(--consent-h,0px))]`), a nie regułą.
+ *    Wyrażenie musi trafić w sam kawałek doliczający, nie w komentarz obok —
+ *    komentarze o `--consent-h` są w tych plikach i goły grep by je złapał.
+ */
+export type MiejsceRezerwy =
+  | { plik: string; selektor: string }
+  | { plik: string; wzorzec: RegExp };
+
 export type OpcjeKontraktu = {
   /** Jak landing renderuje baner — z własnym kluczem i ewentualnie własnym tekstem. */
   element: () => ReactElement;
@@ -41,13 +56,13 @@ export type OpcjeKontraktu = {
    * baner migający powracającemu przy każdym wejściu.
    */
   sciezkaLayoutu?: string;
-  /** Ścieżka do arkusza klienta, względem korzenia repo (np. `src/app/globals.css`). */
-  sciezkaCss: string;
   /**
-   * Selektory elementów, które doliczają rezerwę. Zwykle strona kalkulatora
-   * (`.quiz`) i przyklejony pasek nawigacji (`.quiz-nawigacja`).
+   * Opcjonalnie: plik, w którym landing nadpisuje `--consent-zapas`. Bez tego
+   * kontrakt porównuje z wartością domyślną paczki.
    */
-  selektoryRezerwy: string[];
+  sciezkaZapasu?: string;
+  /** Miejsca, w których landing dolicza rezerwę. Patrz `MiejsceRezerwy`. */
+  rezerwa: MiejsceRezerwy[];
   /**
    * Wysokość banera ZMIERZONA W PRZEGLĄDARCE na buildzie produkcyjnym, przy
    * oknie 375 px. Zapas przed hydracją nie może być od niej mniejszy.
@@ -303,30 +318,65 @@ export function kontraktBaneraZgody(opcje: OpcjeKontraktu): void {
   });
 
   /**
-   * Druga strona kontraktu: arkusz klienta. Bez tego bloku można wyciąć
-   * `var(--consent-h)` ze strony kalkulatora i zostać z całkowicie zielonym
+   * Druga strona kontraktu: kod landingu. Bez tego bloku można wyciąć
+   * doliczenie rezerwy ze strony kalkulatora i zostać z całkowicie zielonym
    * zestawem, mimo że przycisk wysyłki znowu jest przykryty.
    */
-  describe('kontrakt: arkusz klienta konsumuje --consent-h', () => {
-    const css = readFileSync(path.resolve(process.cwd(), opcje.sciezkaCss), 'utf8');
+  describe('kontrakt: landing dolicza --consent-h', () => {
+    for (const miejsce of opcje.rezerwa) {
+      const opis =
+        'selektor' in miejsce
+          ? `${miejsce.plik} → ${miejsce.selektor}`
+          : `${miejsce.plik} → ${miejsce.wzorzec}`;
 
-    for (const selektor of opcje.selektoryRezerwy) {
-      it(`${selektor} dolicza rezerwę`, () => {
-        const regula = znajdzRegule(css, selektor);
-        expect(regula, `brak reguły ${selektor} w ${opcje.sciezkaCss}`).not.toBeNull();
-        expect(regula!).toContain('var(--consent-h');
+      it(`${opis} dolicza rezerwę`, () => {
+        const tresc = readFileSync(path.resolve(process.cwd(), miejsce.plik), 'utf8');
+
+        if ('wzorzec' in miejsce) {
+          const trafienie = tresc.match(miejsce.wzorzec);
+          expect(trafienie, `wzorzec nie trafia w ${miejsce.plik}`).not.toBeNull();
+          expect(trafienie![0]).toContain('var(--consent-h');
+          return;
+        }
+
+        const reguly = znajdzReguly(tresc, miejsce.selektor);
+        expect(reguly.length, `brak reguły ${miejsce.selektor} w ${miejsce.plik}`).toBeGreaterThan(0);
+
+        /*
+         * ⚠ Sprawdzamy KAŻDĄ regułę selektora, która rusza dolny odstęp, a nie
+         * „przynajmniej jedną". Powód jest konkretny: u Termo-Fasad `.kp-main`
+         * ma padding podany skrótem i drugi raz w media query dla telefonu.
+         * Doliczenie rezerwy tylko w regule bazowej wygląda na zrobione,
+         * a skrót z media query kasuje ją dokładnie tam, gdzie boli —
+         * na telefonie, czyli na ~87% ruchu.
+         */
+        const rusza = reguly.filter((r) => /[;{]\s*(padding|padding-bottom|bottom)\s*:/.test(r));
+        expect(
+          rusza.length,
+          `żadna reguła ${miejsce.selektor} nie ustawia dolnego odstępu`,
+        ).toBeGreaterThan(0);
+
+        for (const regula of rusza) {
+          expect(regula, `reguła ${miejsce.selektor} bez rezerwy: ${regula.slice(0, 80)}`).toContain(
+            'var(--consent-h',
+          );
+        }
       });
     }
 
     /**
      * Baner jedzie z serwera, a mierzy się dopiero po hydracji. W tym oknie
      * rezerwację trzyma sam CSS: paczka daje `--consent-zapas` z wartością
-     * domyślną, klient może ją nadpisać. Wartość nie może być mniejsza niż
+     * domyślną, landing może ją nadpisać. Wartość nie może być mniejsza niż
      * realna wysokość banera na telefonie, bo wtedy okno przed hydracją
      * odsłania dokładnie ten fragment przycisku, o który chodziło.
      */
     it('zapas przed hydracją nie jest mniejszy niż zmierzona wysokość banera', () => {
-      const nadpisanie = css.match(/--consent-zapas:\s*(\d+)px/);
+      const nadpisanie = opcje.sciezkaZapasu
+        ? readFileSync(path.resolve(process.cwd(), opcje.sciezkaZapasu), 'utf8').match(
+            /--consent-zapas:\s*(\d+)px/,
+          )
+        : null;
       const zapas = nadpisanie ? Number(nadpisanie[1]) : ZAPAS_DOMYSLNY;
       expect(zapas).toBeGreaterThanOrEqual(opcje.wysokoscNaTelefonie);
     });
@@ -346,25 +396,29 @@ export function kontraktBaneraZgody(opcje: OpcjeKontraktu): void {
 }
 
 /**
- * Wycina z arkusza blok reguły dla podanego selektora. Skan po tekście, nie
- * regex budowany z selektora: kropki i nawiasy w selektorach CSS trzeba by
- * escapować, a pomyłka w escapowaniu daje test, który zawsze przechodzi.
- * Selektor musi stać samodzielnie, więc `.quiz` nie złapie `.quiz-nawigacja`.
+ * Wycina WSZYSTKIE bloki reguł dla podanego selektora. Skan po tekście, nie regex
+ * budowany z selektora: kropki i nawiasy w selektorach CSS trzeba by escapować,
+ * a pomyłka w escapowaniu daje test, który zawsze przechodzi. Selektor musi stać
+ * samodzielnie, więc `.quiz` nie złapie `.quiz-nawigacja`.
+ *
+ * Wszystkie, a nie pierwszą — ten sam selektor zwykle wraca w media query
+ * i to właśnie tam rezerwa najczęściej ginie.
  */
-function znajdzRegule(css: string, selektor: string): string | null {
+function znajdzReguly(tresc: string, selektor: string): string[] {
+  const znalezione: string[] = [];
   let od = 0;
-  while ((od = css.indexOf(selektor, od)) !== -1) {
+  while ((od = tresc.indexOf(selektor, od)) !== -1) {
     const koniecSelektora = od + selektor.length;
-    const poprzedni = od === 0 ? '\n' : css[od - 1];
-    const nastepny = css[koniecSelektora] ?? '';
+    const poprzedni = od === 0 ? '\n' : tresc[od - 1];
+    const nastepny = tresc[koniecSelektora] ?? '';
     if (/[\s,{}]/.test(poprzedni) && /[\s,{]/.test(nastepny)) {
-      const otwarcie = css.indexOf('{', koniecSelektora);
-      const zamkniecie = css.indexOf('}', otwarcie);
-      if (otwarcie !== -1 && zamkniecie !== -1) return css.slice(od, zamkniecie + 1);
+      const otwarcie = tresc.indexOf('{', koniecSelektora);
+      const zamkniecie = tresc.indexOf('}', otwarcie);
+      if (otwarcie !== -1 && zamkniecie !== -1) znalezione.push(tresc.slice(od, zamkniecie + 1));
     }
     od = koniecSelektora;
   }
-  return null;
+  return znalezione;
 }
 
 /**
