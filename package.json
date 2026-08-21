@@ -1,0 +1,39 @@
+{
+  "name": "@budowalka/baner-zgody",
+  "version": "1.0.0",
+  "description": "Baner zgody na ciasteczka (Consent Mode v2) dla landingów kalkulatorowych Budowalki — mierzy własną wysokość i publikuje ją jako --consent-h, żeby nie zasłaniać przycisków.",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Budowalka/budowalka-consent.git"
+  },
+  "type": "module",
+  "sideEffects": ["*.css"],
+  "exports": {
+    ".": "./src/index.ts",
+    "./css": "./src/baner-zgody.css",
+    "./testy": "./testy/kontrakt.tsx"
+  },
+  "files": ["src", "testy", "README.md"],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": ">=19",
+    "react-dom": ">=19",
+    "vitest": ">=3"
+  },
+  "peerDependenciesMeta": {
+    "vitest": { "optional": true }
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "jsdom": "^29.1.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "typescript": "^5",
+    "vitest": "^3.2.4"
+  }
+}

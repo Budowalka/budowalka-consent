@@ -1,0 +1,19 @@
+/*
+ * Udaje `globals.css` landingu. Paczka uruchamia na nim własny zestaw
+ * kontraktowy, żeby zestaw był sprawdzony ZANIM trafi do repo klienta —
+ * test, który nigdy nie był czerwony, nie jest testem.
+ */
+
+:root {
+  /* Baner tego „klienta" jest wyższy niż domyślny, więc podnosi zapas. */
+  --consent-zapas: 110px;
+}
+
+.quiz {
+  padding-bottom: calc(24px + var(--consent-h, 0px));
+}
+
+.quiz-nawigacja {
+  position: sticky;
+  bottom: var(--consent-h, 0px);
+}
