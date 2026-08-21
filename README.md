@@ -23,7 +23,7 @@ sekcja 9b.
 ## Instalacja
 
 ```bash
-npm i "@budowalka/baner-zgody@github:Budowalka/budowalka-consent#v1.1.0"
+npm i "@budowalka/baner-zgody@github:Budowalka/budowalka-consent#v1.1.1"
 ```
 
 Paczka nie idzie przez żaden rejestr — repo jest publiczne, więc instalacja
@@ -92,6 +92,14 @@ Wszystko, co stoi przy dolnej krawędzi, dolicza zmienną:
 
 To jest ta strona kontraktu, której paczka nie może zrobić za landing — i to
 właśnie jej brak wywołał incydent.
+
+⚠ **Dolicz na OSTATNIM elemencie w przepływie, nie na kontenerze formularza.**
+U Termo-Fasad rezerwa poszła najpierw na `.kp-main` i wyglądała na zrobioną —
+a pomiar w przeglądarce pokazał, że baner zasłania w 94% stopkę strony z numerem
+telefonu i adresem e-mail. Stopka leży poza `main`, więc odsunięcie samego `main`
+przesuwało ją pod baner, zamiast ją stamtąd wyciągnąć. Przycisk wysyłki był tam
+akurat bezpieczny, bo chroniła go stojąca pod nim stopka kroków. Sprawdź, co
+naprawdę stoi najniżej — to nie zawsze jest przycisk.
 
 ### 4. Zestaw kontraktowy w testach landingu
 
@@ -186,7 +194,7 @@ zasłaniał przyciski.
 ## Aktualizacja
 
 ```bash
-npm i "@budowalka/baner-zgody@github:Budowalka/budowalka-consent#v1.1.0"
+npm i "@budowalka/baner-zgody@github:Budowalka/budowalka-consent#v1.1.1"
 npm test
 ```
 
