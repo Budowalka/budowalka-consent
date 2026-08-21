@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { createElement, useEffect, useRef, useState } from 'react';
 import {
   ATRYBUT_ZGODY,
   ETYKIETA_ODMOWY_DOMYSLNA,
@@ -115,29 +115,42 @@ export function BanerZgody({
 
   if (!widoczny) return null;
 
-  return (
-    <div
-      ref={kontener}
-      className={klasa ? `consent-banner ${klasa}` : 'consent-banner'}
-      role="region"
-      aria-label="Zgoda na ciasteczka"
-    >
-      <p className="consent-tekst">{tekst}</p>
-      {/*
-        Kolejność w DOM: NAJPIERW zgoda, potem odmowa. Na telefonie przyciski
-        układają się w kolumnę i „Zgadzam się" ma stać na górze; w rzędzie ma być
-        po prawej, co załatwia `row-reverse` w CSS. Robi to kolejność w DOM,
-        a nie `column-reverse`, żeby czytnik ekranu czytał to samo, co widać.
-      */}
-      <div className="consent-przyciski">
-        <button type="button" className="consent-tak" onClick={() => zdecyduj('granted')}>
-          {etykietaZgody}
-        </button>
-        <button type="button" className="consent-nie" onClick={() => zdecyduj('denied')}>
-          {etykietaOdmowy}
-        </button>
-      </div>
-    </div>
+  /*
+   * `createElement` zamiast JSX — nie z upodobania, tylko dlatego, że paczka
+   * jedzie do landingów jako ŹRÓDŁO (bez kroku budowania). Gdyby były tu tagi
+   * JSX, każde repo musiałoby dołożyć `esbuild: { jsx: 'automatic' }` do swojej
+   * konfiguracji vitest — vite nie czyta `tsconfig.json` z `node_modules`,
+   * więc bez tego testy padają na „React is not defined". Sprawdzone na świeżej
+   * instalacji: to była jedyna rzecz, która nie działała out of the box.
+   *
+   * Kolejność w DOM: NAJPIERW zgoda, potem odmowa. Na telefonie przyciski
+   * układają się w kolumnę i „Zgadzam się" ma stać na górze; w rzędzie ma być
+   * po prawej, co załatwia `row-reverse` w CSS. Robi to kolejność w DOM,
+   * a nie `column-reverse`, żeby czytnik ekranu czytał to samo, co widać.
+   */
+  return createElement(
+    'div',
+    {
+      ref: kontener,
+      className: klasa ? `consent-banner ${klasa}` : 'consent-banner',
+      role: 'region',
+      'aria-label': 'Zgoda na ciasteczka',
+    },
+    createElement('p', { className: 'consent-tekst' }, tekst),
+    createElement(
+      'div',
+      { className: 'consent-przyciski' },
+      createElement(
+        'button',
+        { type: 'button', className: 'consent-tak', onClick: () => zdecyduj('granted') },
+        etykietaZgody,
+      ),
+      createElement(
+        'button',
+        { type: 'button', className: 'consent-nie', onClick: () => zdecyduj('denied') },
+        etykietaOdmowy,
+      ),
+    ),
   );
 }
 
