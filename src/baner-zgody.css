@@ -1,80 +1,93 @@
 /*
- * Baner zgody — style paczki. Zero Tailwinda, żeby ten sam plik działał
- * w landingach pisanych własnym CSS i w tych na Tailwindzie.
+ * Baner zgody — style paczki, wariant pełnoekranowego overlaya z kartą.
+ * Zero Tailwinda, żeby ten sam plik działał w landingach pisanych własnym CSS
+ * i w tych na Tailwindzie.
  *
  * Kolory idą przez zmienne z wartościami zapasowymi: landing mapuje je na swoje
  * tokeny (`--consent-akcent: var(--kolor-marki)`) albo nie robi nic i dostaje
- * neutralny, ciemny pasek.
+ * neutralną, jasną kartę na przyciemnionym tle.
  */
-
-:root {
-  --consent-h: 0px;
-}
-
-/*
- * Zapas na okno między pierwszym malowaniem a hydracją. Baner przychodzi
- * z serwera, a zmierzy się dopiero po hydracji — bez tej reguły w tym oknie
- * nie ma żadnej rezerwacji i przycisk wysyłki jest przykryty. Wartość jest
- * fallbackiem, nie definicją, więc landing nadpisuje ją u siebie jednym
- * `--consent-zapas: 120px` bez walki o kolejność importów.
- * Po pomiarze komponent nadpisuje `--consent-h` stylem na elemencie <html>,
- * który ma pierwszeństwo przed tą regułą.
- */
-html:not([data-consent='decided']) {
-  --consent-h: var(--consent-zapas, 96px);
-}
 
 /*
  * Powracającemu skrypt inline stawia ten atrybut przed pierwszym malowaniem,
- * więc baner z serwera nie mignie i nie kandyduje na element LCP.
+ * więc overlay z serwera nie mignie i nie kandyduje na element LCP.
  */
-html[data-consent='decided'] .consent-banner {
+html[data-consent='decided'] .consent-overlay {
   display: none;
 }
 
-.consent-banner {
+/*
+ * Scroll zablokowany do podjęcia decyzji — czystym CSS, więc działa od
+ * pierwszego malowania, zanim React się zhydratuje. Atrybut `decided` stawia
+ * skrypt inline (powracający) albo komponent po kliknięciu — obie opcje,
+ * zgoda i odmowa, odblokowują tak samo (wymóg dobrowolności zgody).
+ */
+html:not([data-consent='decided']) body {
+  overflow: hidden;
+}
+
+.consent-overlay {
   position: fixed;
-  inset-inline: 0;
-  bottom: 0;
+  inset: 0;
   z-index: 100;
   display: flex;
   align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: var(--consent-przyciemnienie, rgba(20, 20, 20, 0.6));
+  backdrop-filter: blur(2px);
+}
+
+.consent-banner {
+  width: 100%;
+  max-width: 440px;
+  background: var(--consent-tlo, #fdfcfa);
+  color: var(--consent-kolor-tekstu, #26221d);
+  padding: 28px 26px;
+  border-radius: 8px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
   gap: 12px;
-  padding: 10px 16px;
-  background: var(--consent-tlo, #24211d);
-  color: var(--consent-kolor-tekstu, #f2ede4);
-  border-top: 1px solid var(--consent-obwodka, rgba(255, 255, 255, 0.12));
-  font-size: 13px;
-  line-height: 1.4;
+}
+
+.consent-naglowek {
+  margin: 0;
+  font-size: 21px;
+  line-height: 1.25;
 }
 
 .consent-tekst {
   margin: 0;
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: 640px;
+  font-size: 15.5px;
+  line-height: 1.5;
+  color: var(--consent-kolor-tekstu-slaby, #5a544b);
 }
 
 /*
- * `row-reverse` przy kolejności w DOM „zgoda, potem odmowa" stawia główną akcję
- * po prawej stronie szerokiego banera, zgodnie z konwencją. Zamiana tego na
- * `row` cicho odwraca układ — pilnuje tego zestaw kontraktowy.
+ * `column`, nie `column-reverse` — zgoda jest pierwsza w DOM i ma być na górze,
+ * a czytnik ekranu ma czytać to samo, co widać. Pilnuje tego zestaw kontraktowy.
  */
 .consent-przyciski {
   display: flex;
-  flex-direction: row-reverse;
-  gap: 10px;
-  flex-shrink: 0;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 8px;
 }
 
+/*
+ * Oba przyciski w jednej regule rozmiaru: równorzędność opcji na pierwszej
+ * warstwie (EDPB/CNIL). Różni je tylko kolor — akcent kontra obwódka.
+ */
 .consent-banner button {
+  min-height: 50px;
+  padding: 0 18px;
+  width: 100%;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
   cursor: pointer;
   border-radius: 6px;
-  padding: 8px 14px;
-  font: inherit;
-  font-weight: 600;
-  white-space: nowrap;
-  min-height: 36px;
 }
 
 .consent-tak {
@@ -86,7 +99,7 @@ html[data-consent='decided'] .consent-banner {
 .consent-nie {
   background: transparent;
   color: inherit;
-  border: 1px solid var(--consent-obwodka-przycisku, #6d675e);
+  border: 1px solid var(--consent-obwodka-przycisku, #a49b8d);
 }
 
 .consent-banner button:focus-visible {
@@ -95,27 +108,18 @@ html[data-consent='decided'] .consent-banner {
 }
 
 /*
- * Na telefonie przyciski schodzą do kolumny. `column`, nie `column-reverse` —
- * zgoda ma zostać na górze, a robi to kolejność w DOM, żeby czytnik ekranu
- * czytał to samo, co widać.
+ * Na telefonie karta dosuwa się do dołu ekranu — kciuk sięga przycisków,
+ * a przyciemnione tło nad kartą wciąż pokazuje, że strona czeka pod spodem.
  */
 @media (max-width: 620px) {
+  .consent-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
   .consent-banner {
-    gap: 10px;
-    padding: 8px 12px;
-    font-size: 12.5px;
-    line-height: 1.35;
-  }
-
-  .consent-przyciski {
-    flex-direction: column;
-    gap: 5px;
-  }
-
-  .consent-banner button {
-    width: 100%;
-    padding: 7px 10px;
-    font-size: 12.5px;
-    min-height: 32px;
+    max-width: none;
+    border-radius: 8px 8px 0 0;
+    padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
   }
 }

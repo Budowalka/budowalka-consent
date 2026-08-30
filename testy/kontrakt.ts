@@ -1,26 +1,27 @@
 /**
  * Zestaw kontraktowy banera zgody — uruchamiany W REPO KLIENTA, nie tutaj.
  *
- * PO CO TO JEST. 21.08.2026 okazało się, że baner zgody zasłaniał przycisk
- * wysyłki formularza na czterech landingach naraz. U Niezawodnych logi z siedmiu
- * dni pokazały 74 wejścia do kalkulatora i ani jednej próby wysyłki — żądanie
- * w ogóle nie wychodziło, więc w logach nie było żadnego błędu. Naprawa polega
- * na tym, że baner mierzy własną wysokość i publikuje ją jako `--consent-h`,
- * a strona dolicza tę zmienną do dolnego odstępu.
+ * PO CO TO JEST. Od 30.08.2026 baner jest pełnoekranowym overlayem z kartą:
+ * pasek na dole dawało się zignorować, więc większość ruchu nie podejmowała
+ * żadnej decyzji i Google w trybie Consent Mode nie zbierał danych. Overlay
+ * wymusza decyzję przed interakcją ze stroną — scroll blokuje czysty CSS
+ * (`html:not([data-consent='decided']) body { overflow: hidden }`), a obie
+ * opcje (zgoda i odmowa) odblokowują go tak samo. Inaczej zgoda nie byłaby
+ * dobrowolna (EDPB 05/2020) i cały pomiar wisiałby na nieważnej podstawie.
  *
- * ⚠ KONTRAKT MA DWIE STRONY. Paczka odpowiada za pomiar, klient za doliczenie.
- * Sam komponent może być bez zarzutu, a przycisk i tak zostanie przykryty, jeśli
- * z `globals.css` klienta zniknie `var(--consent-h)`. Dlatego blok „kontrakt CSS"
- * czyta ŹRÓDŁO arkusza klienta — w jsdom nie ma kaskady, `getComputedStyle` nie
- * rozwiąże `calc()` ze zmienną i nie zna reguł z pliku, którego nikt nie wstrzyknął.
+ * ⚠ KONTRAKT MA DWIE STRONY. Komponent stawia znacznik `decided`, ale blokada
+ * scrolla i chowanie overlaya u powracającego żyją w CSS. Sam komponent może
+ * być bez zarzutu, a strona i tak zostanie zablokowana na zawsze (albo baner
+ * będzie migał przy każdym wejściu), jeśli te reguły znikną z arkusza. Dlatego
+ * blok „kontrakt CSS" czyta ŹRÓDŁO arkusza — w jsdom nie ma kaskady,
+ * `getComputedStyle` nie zna reguł z pliku, którego nikt nie wstrzyknął.
  *
- * ⚠ CZEGO TE TESTY NIE DOWODZĄ. Nie sprawdzają klikalności ani widoczności —
- * jsdom nie liczy layoutu i nie ma trafień myszą. Dowodzą, że rezerwacja powstaje,
- * ma wartość z POMIARU (a nie wpisaną na sztywno), wraca do zera, gdy baner znika,
- * i że druga strona kontraktu istnieje w CSS. Realne nienachodzenie potwierdza się
- * osobno w przeglądarce: `getBoundingClientRect` i `elementFromPoint` w pięciu
- * punktach przycisku, przy widocznym banerze, po przewinięciu do końca,
- * na oknie 375×667 (czyli z paskiem adresu).
+ * ⚠ CZEGO TE TESTY NIE DOWODZĄ. jsdom nie liczy layoutu i nie ma trafień
+ * myszą, więc nie sprawdzą, że overlay realnie zasłania treść ani że scroll
+ * stoi. Dowodzą kontraktu: overlay jest w HTML z serwera, decyzja zapisuje się
+ * i stawia znacznik odblokowujący stronę, a reguły CSS, na których wisi
+ * blokada i chowanie, istnieją w źródle. Realne zasłanianie, blokadę scrolla
+ * i klikalność potwierdza się osobno w przeglądarce na buildzie produkcyjnym.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { act, type ReactElement } from 'react';
@@ -28,22 +29,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { ZMIENNA_WYSOKOSCI, ATRYBUT_ZGODY, ZAPAS_DOMYSLNY, LIMIT_SLOW } from '../src/stale';
-
-/**
- * Gdzie landing dolicza rezerwę. Dwa kształty, bo mamy dwa rodzaje landingów:
- *
- *  - `selektor` — reguła CSS w podanym pliku. Plik nie musi być arkuszem:
- *    u Termo-Fasad style strony kalkulatora żyją w stałej `STYLE` wewnątrz
- *    komponentu i skan po tekście działa tam tak samo.
- *  - `wzorzec` — dla landingów tailwindowych, gdzie rezerwa jest klasą
- *    arbitralną w JSX (`pb-[calc(120px+var(--consent-h,0px))]`), a nie regułą.
- *    Wyrażenie musi trafić w sam kawałek doliczający, nie w komentarz obok —
- *    komentarze o `--consent-h` są w tych plikach i goły grep by je złapał.
- */
-export type MiejsceRezerwy =
-  | { plik: string; selektor: string }
-  | { plik: string; wzorzec: RegExp };
+import { ATRYBUT_ZGODY, LIMIT_SLOW, ZGODA_PODJETA } from '../src/stale';
 
 export type OpcjeKontraktu = {
   /** Jak landing renderuje baner — z własnym kluczem i ewentualnie własnym tekstem. */
@@ -57,18 +43,23 @@ export type OpcjeKontraktu = {
    */
   sciezkaLayoutu?: string;
   /**
-   * Opcjonalnie: plik, w którym landing nadpisuje `--consent-zapas`. Bez tego
-   * kontrakt porównuje z wartością domyślną paczki.
+   * Arkusz z regułami overlaya (scroll-lock, chowanie u powracającego, wspólny
+   * rozmiar przycisków). Domyślnie CSS paczki w `node_modules` — landing, który
+   * importuje `@budowalka/baner-zgody/css`, nie musi nic podawać. Landing
+   * z lokalną kopią stylów wskazuje tu swój plik (np. `src/app/globals.css`).
    */
-  sciezkaZapasu?: string;
-  /** Miejsca, w których landing dolicza rezerwę. Patrz `MiejsceRezerwy`. */
-  rezerwa: MiejsceRezerwy[];
+  sciezkaArkusza?: string;
   /**
-   * Wysokość banera ZMIERZONA W PRZEGLĄDARCE na buildzie produkcyjnym, przy
-   * oknie 375 px. Zapas przed hydracją nie może być od niej mniejszy.
+   * Opcjonalnie: pliki, w których nie może zostać ślad po mechanizmie rezerwy
+   * `--consent-h` z wariantu paskowego (do v1). Overlay nie leży trwale na
+   * treści, więc rezerwa odeszła w całości — połowicznie przywrócony mechanizm
+   * (np. sam zapas w CSS) zostawia martwy odstęp, którego nic już nie zeruje.
+   * Podaj tu arkusze i strony, które przy pasku doliczały rezerwę.
    */
-  wysokoscNaTelefonie: number;
+  plikiBezSladu?: string[];
 };
+
+const ARKUSZ_PACZKI = 'node_modules/@budowalka/baner-zgody/src/baner-zgody.css';
 
 /** Pamięć w pamięci — Node podstawia własne, wyłączone `localStorage`, a jsdom go nie nadpisuje. */
 function pamiecWPamieci() {
@@ -94,15 +85,11 @@ function podstaw(wartosc: unknown) {
 }
 
 export function kontraktBaneraZgody(opcje: OpcjeKontraktu): void {
-  const opisOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
   const opisLocalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
 
   let korzen: Root | null = null;
   let gniazdo: HTMLDivElement;
-  let udawanaWysokosc = opcje.wysokoscNaTelefonie;
   let wywolaniaGtag: unknown[][] = [];
-
-  const zmienna = () => document.documentElement.style.getPropertyValue(ZMIENNA_WYSOKOSCI);
 
   function zamontuj() {
     gniazdo = document.createElement('div');
@@ -127,85 +114,86 @@ export function kontraktBaneraZgody(opcje: OpcjeKontraktu): void {
     });
   }
 
-  describe('baner zgody — rezerwacja miejsca pod przyciskami', () => {
+  describe('baner zgody — overlay wymuszający decyzję', () => {
     beforeEach(() => {
       (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
       podstaw(pamiecWPamieci());
-      udawanaWysokosc = opcje.wysokoscNaTelefonie;
       wywolaniaGtag = [];
       (window as unknown as { gtag: (...a: unknown[]) => void }).gtag = (...a: unknown[]) => {
         wywolaniaGtag.push(a);
       };
       document.documentElement.removeAttribute(ATRYBUT_ZGODY);
-      document.documentElement.style.removeProperty(ZMIENNA_WYSOKOSCI);
-      // jsdom nie liczy layoutu — `offsetHeight` jest tam zawsze 0. Bez podstawienia
-      // test nie odróżniłby pomiaru od braku pomiaru.
-      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
-        configurable: true,
-        get: () => udawanaWysokosc,
-      });
-      zainstalujObserwator();
     });
 
     afterEach(() => {
       odmontuj();
       if (opisLocalStorage) Object.defineProperty(globalThis, 'localStorage', opisLocalStorage);
-      if (opisOffsetHeight) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', opisOffsetHeight);
-      else delete (HTMLElement.prototype as unknown as Record<string, unknown>).offsetHeight;
       delete (window as unknown as Record<string, unknown>).gtag;
-      przywrocObserwator();
+      document.documentElement.removeAttribute(ATRYBUT_ZGODY);
     });
 
     /**
-     * Baner MUSI być w HTML z serwera. Wariant doklejany po hydracji kosztował
-     * na dwóch landingach około dwóch sekund LCP: pasek na całą szerokość
-     * pojawiał się późno i przeglądarka brała go za kandydata na element LCP.
+     * Overlay MUSI być w HTML z serwera. Wariant doklejany po hydracji kosztował
+     * na dwóch landingach około dwóch sekund LCP: element na cały ekran pojawiał
+     * się późno i przeglądarka brała go za kandydata na element LCP.
      */
     it('jest w HTML z serwera, nie doklejany po hydracji', () => {
       const html = renderToStaticMarkup(opcje.element());
-      expect(html).toContain('consent-banner');
+      expect(html).toContain('consent-overlay');
       expect(html).toContain('consent-tak');
       expect(html).toContain('consent-nie');
     });
 
-    it('publikuje zmierzoną wysokość jako --consent-h', () => {
+    it('overlay jest dialogiem modalnym z kartą w środku', () => {
       zamontuj();
-      expect(zmienna()).toBe(`${opcje.wysokoscNaTelefonie}px`);
+      const overlay = gniazdo.querySelector('.consent-overlay');
+      expect(overlay).not.toBeNull();
+      expect(overlay!.getAttribute('role')).toBe('dialog');
+      expect(overlay!.getAttribute('aria-modal')).toBe('true');
+      expect(overlay!.querySelector('.consent-banner')).not.toBeNull();
     });
 
-    it('podaje POMIAR, nie wpisaną na sztywno liczbę — inny baner, inna wartość', () => {
-      udawanaWysokosc = opcje.wysokoscNaTelefonie + 55;
+    it('po zgodzie stawia znacznik decided, zapisuje granted i znika', () => {
       zamontuj();
-      expect(zmienna()).toBe(`${opcje.wysokoscNaTelefonie + 55}px`);
-    });
-
-    it('po zgodzie znika i zwalnia miejsce', () => {
-      zamontuj();
-      expect(zmienna()).toBe(`${opcje.wysokoscNaTelefonie}px`);
       kliknij('.consent-tak');
-      expect(gniazdo.querySelector('.consent-banner')).toBeNull();
-      expect(zmienna()).toBe('0px');
+      expect(localStorage.getItem(opcje.klucz)).toBe('granted');
+      expect(document.documentElement.getAttribute(ATRYBUT_ZGODY)).toBe(ZGODA_PODJETA);
+      expect(gniazdo.querySelector('.consent-overlay')).toBeNull();
+      const update = wywolaniaGtag.find((a) => a[0] === 'consent' && a[1] === 'update');
+      expect(update, 'brak consent update po zgodzie').toBeDefined();
+      expect(update![2]).toMatchObject({
+        ad_storage: 'granted',
+        ad_user_data: 'granted',
+        ad_personalization: 'granted',
+        analytics_storage: 'granted',
+      });
     });
 
-    it('po odmowie też znika i zwalnia miejsce', () => {
+    /**
+     * Odmowa odblokowuje stronę TAK SAMO jak zgoda — ten sam znacznik `decided`.
+     * To granica prawna, nie kosmetyka: zgoda wymuszona zablokowaną stroną
+     * nie jest dobrowolna, a bez dobrowolności cały pomiar jest nieważny.
+     */
+    it('po odmowie stawia TEN SAM znacznik decided, zapisuje denied i znika', () => {
       zamontuj();
       kliknij('.consent-nie');
-      expect(gniazdo.querySelector('.consent-banner')).toBeNull();
-      expect(zmienna()).toBe('0px');
+      expect(localStorage.getItem(opcje.klucz)).toBe('denied');
+      expect(document.documentElement.getAttribute(ATRYBUT_ZGODY)).toBe(ZGODA_PODJETA);
+      expect(gniazdo.querySelector('.consent-overlay')).toBeNull();
+      const update = wywolaniaGtag.find((a) => a[0] === 'consent' && a[1] === 'update');
+      expect(update, 'brak consent update po odmowie').toBeDefined();
+      expect(update![2]).toMatchObject({
+        ad_storage: 'denied',
+        ad_user_data: 'denied',
+        ad_personalization: 'denied',
+        analytics_storage: 'denied',
+      });
     });
 
-    it('po odmontowaniu zwalnia miejsce', () => {
-      zamontuj();
-      expect(zmienna()).toBe(`${opcje.wysokoscNaTelefonie}px`);
-      odmontuj();
-      expect(zmienna()).toBe('0px');
-    });
-
-    it('powracający z zapisaną decyzją nie widzi banera i nie powoduje rezerwacji', () => {
+    it('powracający z zapisaną decyzją nie widzi overlaya', () => {
       localStorage.setItem(opcje.klucz, 'granted');
       zamontuj();
-      expect(gniazdo.querySelector('.consent-banner')).toBeNull();
-      expect(zmienna()).toBe('0px');
+      expect(gniazdo.querySelector('.consent-overlay')).toBeNull();
     });
 
     /**
@@ -235,18 +223,14 @@ export function kontraktBaneraZgody(opcje: OpcjeKontraktu): void {
       expect(granted, 'odmowa nie może kończyć się zgodą w gtag').toBe(false);
     });
 
-    it('zapisuje decyzję pod ustalonym kluczem', () => {
-      zamontuj();
-      kliknij('.consent-tak');
-      expect(localStorage.getItem(opcje.klucz)).toBe('granted');
-    });
-
     /**
      * Tryb prywatny i zablokowane ciasteczka potrafią rzucić z `localStorage`.
      * Baner ma wtedy zapytać drugi raz, a nie wywalić całą stronę — to jest
      * komponent renderowany w layoucie, więc jego wyjątek zabiera cały landing.
+     * Kliknięcie MUSI mimo to postawić znacznik `decided`, bo na nim wisi
+     * odblokowanie scrolla.
      */
-    it('przeżywa niedostępny localStorage', () => {
+    it('przeżywa niedostępny localStorage i mimo to odblokowuje stronę', () => {
       podstaw({
         getItem: () => {
           throw new Error('brak dostępu');
@@ -256,20 +240,29 @@ export function kontraktBaneraZgody(opcje: OpcjeKontraktu): void {
         },
       });
       expect(() => zamontuj()).not.toThrow();
-      expect(gniazdo.querySelector('.consent-banner')).not.toBeNull();
+      expect(gniazdo.querySelector('.consent-overlay')).not.toBeNull();
       expect(() => kliknij('.consent-tak')).not.toThrow();
-      expect(gniazdo.querySelector('.consent-banner')).toBeNull();
+      expect(gniazdo.querySelector('.consent-overlay')).toBeNull();
+      expect(document.documentElement.getAttribute(ATRYBUT_ZGODY)).toBe(ZGODA_PODJETA);
     });
 
     /**
-     * Decyzja Piotra z 21.08.2026: główna akcja stoi NAD odmową w kolumnie
-     * i po prawej w rzędzie — kolejnością w DOM, nie odwróceniem wizualnym,
-     * żeby czytnik ekranu czytał to samo, co widać.
+     * Decyzja Piotra: główna akcja („Zgadzam się") stoi NAD odmową. Robi to
+     * kolejność w DOM, nie `column-reverse`, żeby czytnik ekranu czytał to
+     * samo, co widać. Drugą stronę (kierunek `column`) sprawdza kontrakt CSS.
      */
     it('przycisk zgody stoi w DOM przed przyciskiem odmowy', () => {
       zamontuj();
-      const klasy = [...gniazdo.querySelectorAll('.consent-banner button')].map((b) => b.className);
+      const klasy = [...gniazdo.querySelectorAll('.consent-przyciski button')].map((b) => b.className);
       expect(klasy).toEqual(['consent-tak', 'consent-nie']);
+    });
+
+    it('odmowa jest zwykłym przyciskiem na pierwszej warstwie — bez dodatkowych kroków', () => {
+      zamontuj();
+      const odmowa = gniazdo.querySelector<HTMLButtonElement>('.consent-nie');
+      expect(odmowa).not.toBeNull();
+      expect(odmowa!.tagName).toBe('BUTTON');
+      expect(odmowa!.textContent?.trim().length).toBeGreaterThan(0);
     });
 
     it(`tekst banera mieści się w ${LIMIT_SLOW} słowach`, () => {
@@ -278,114 +271,77 @@ export function kontraktBaneraZgody(opcje: OpcjeKontraktu): void {
       expect(tekst.length).toBeGreaterThan(0);
       expect(tekst.split(/\s+/).length).toBeLessThanOrEqual(LIMIT_SLOW);
     });
-
-    /**
-     * ⚠ Te cztery testy istnieją, bo jsdom NIE MA `ResizeObserver`. Bez atrapy
-     * komponent chodzi wyłącznie ścieżką awaryjną (`return zeruj`), a ścieżka
-     * z obserwatorem — jedyna, która wykonuje się w prawdziwej przeglądarce —
-     * nie jest sprawdzana wcale. Wyszło to przy próbie mutacji: skasowanie
-     * sprzątania po obserwatorze nie zapaliło ani jednego testu na czerwono.
-     */
-    it('obserwuje baner, żeby złapać obrót telefonu i zmianę zawijania tekstu', () => {
-      zamontuj();
-      expect(AtrapaObserwatora.instancje).toHaveLength(1);
-      expect(AtrapaObserwatora.instancje[0].cele[0]).toBe(gniazdo.querySelector('.consent-banner'));
-    });
-
-    it('aktualizuje rezerwację, gdy baner zmieni wysokość', () => {
-      zamontuj();
-      udawanaWysokosc = opcje.wysokoscNaTelefonie + 55;
-      act(() => AtrapaObserwatora.instancje[0].oddzwon());
-      expect(zmienna()).toBe(`${opcje.wysokoscNaTelefonie + 55}px`);
-    });
-
-    it('przy odmontowaniu odłącza obserwatora i zwalnia miejsce', () => {
-      zamontuj();
-      const obserwator = AtrapaObserwatora.instancje[0];
-      odmontuj();
-      expect(obserwator.odlaczony, 'obserwator został podpięty na zawsze').toBe(true);
-      expect(zmienna()).toBe('0px');
-    });
-
-    it('działa też tam, gdzie ResizeObserver nie istnieje', () => {
-      przywrocObserwator();
-      delete (globalThis as unknown as Record<string, unknown>).ResizeObserver;
-      zamontuj();
-      expect(zmienna()).toBe(`${opcje.wysokoscNaTelefonie}px`);
-      odmontuj();
-      expect(zmienna()).toBe('0px');
-    });
   });
 
   /**
-   * Druga strona kontraktu: kod landingu. Bez tego bloku można wyciąć
-   * doliczenie rezerwy ze strony kalkulatora i zostać z całkowicie zielonym
-   * zestawem, mimo że przycisk wysyłki znowu jest przykryty.
+   * Druga strona kontraktu: arkusz stylów. Bez tego bloku można wyciąć regułę
+   * blokady scrolla albo chowanie overlaya u powracającego — i zostać
+   * z całkowicie zielonym zestawem, mimo że strona jest zablokowana na zawsze
+   * albo baner miga przy każdym wejściu.
    */
-  describe('kontrakt: landing dolicza --consent-h', () => {
-    for (const miejsce of opcje.rezerwa) {
-      const opis =
-        'selektor' in miejsce
-          ? `${miejsce.plik} → ${miejsce.selektor}`
-          : `${miejsce.plik} → ${miejsce.wzorzec}`;
+  describe('kontrakt: CSS overlaya', () => {
+    const sciezka = opcje.sciezkaArkusza ?? ARKUSZ_PACZKI;
+    const css = () => readFileSync(path.resolve(process.cwd(), sciezka), 'utf8');
 
-      it(`${opis} dolicza rezerwę`, () => {
-        const tresc = readFileSync(path.resolve(process.cwd(), miejsce.plik), 'utf8');
+    it(`scroll stoi do podjęcia decyzji — i rusza po znaczniku decided (${sciezka})`, () => {
+      expect(css()).toMatch(/html:not\(\[data-consent='decided'\]\)\s*body\s*\{[^}]*overflow:\s*hidden/);
+    });
 
-        if ('wzorzec' in miejsce) {
-          const trafienie = tresc.match(miejsce.wzorzec);
-          expect(trafienie, `wzorzec nie trafia w ${miejsce.plik}`).not.toBeNull();
-          expect(trafienie![0]).toContain('var(--consent-h');
-          return;
-        }
+    it('powracającemu overlay chowa CSS przed hydracją (znacznik z inline skryptu)', () => {
+      expect(css()).toMatch(/html\[data-consent='decided'\]\s*\.consent-overlay\s*\{[^}]*display:\s*none/);
+    });
 
-        const reguly = znajdzReguly(tresc, miejsce.selektor);
-        expect(reguly.length, `brak reguły ${miejsce.selektor} w ${miejsce.plik}`).toBeGreaterThan(0);
+    it('overlay zasłania cały ekran i leży nad resztą strony', () => {
+      const regula = css().match(/\n\.consent-overlay\s*\{[^}]*\}/);
+      expect(regula, 'brak reguły .consent-overlay').not.toBeNull();
+      expect(regula![0]).toContain('position: fixed');
+      expect(regula![0]).toContain('inset: 0');
+      expect(regula![0]).toMatch(/z-index:\s*\d\d+/);
+    });
 
-        /*
-         * ⚠ Sprawdzamy KAŻDĄ regułę selektora, która rusza dolny odstęp, a nie
-         * „przynajmniej jedną". Powód jest konkretny: u Termo-Fasad `.kp-main`
-         * ma padding podany skrótem i drugi raz w media query dla telefonu.
-         * Doliczenie rezerwy tylko w regule bazowej wygląda na zrobione,
-         * a skrót z media query kasuje ją dokładnie tam, gdzie boli —
-         * na telefonie, czyli na ~87% ruchu.
-         */
-        const rusza = reguly.filter((r) => /[;{]\s*(padding|padding-bottom|bottom)\s*:/.test(r));
-        expect(
-          rusza.length,
-          `żadna reguła ${miejsce.selektor} nie ustawia dolnego odstępu`,
-        ).toBeGreaterThan(0);
+    it('oba przyciski dzielą jedną regułę rozmiaru — równorzędność opcji, nie tylko deklaracja', () => {
+      const wspolna = css().match(/\n\.consent-banner button\s*\{[^}]*\}/);
+      expect(wspolna, 'brak wspólnej reguły przycisków').not.toBeNull();
+      const minWysokosc = wspolna![0].match(/min-height:\s*(\d+)px/);
+      expect(minWysokosc, 'przyciski bez min-height').not.toBeNull();
+      // 44 px to minimalny cel dotykowy — poniżej odmowa robi się „trudniejsza do trafienia".
+      expect(Number(minWysokosc![1])).toBeGreaterThanOrEqual(44);
+      // Odmowa ma widoczną obwódkę, nie jest gołym tekstem.
+      const odmowa = css().match(/\n\.consent-nie\s*\{[^}]*\}/);
+      expect(odmowa, 'brak reguły .consent-nie').not.toBeNull();
+      expect(odmowa![0]).toMatch(/border:\s*1px solid/);
+    });
 
-        for (const regula of rusza) {
-          expect(regula, `reguła ${miejsce.selektor} bez rezerwy: ${regula.slice(0, 80)}`).toContain(
-            'var(--consent-h',
-          );
-        }
-      });
-    }
+    it('zgoda zostaje na górze kolumny — `column`, nie `column-reverse`', () => {
+      const kolumna = css().match(/\n\.consent-przyciski\s*\{([^}]*)\}/);
+      expect(kolumna, 'brak reguły .consent-przyciski').not.toBeNull();
+      expect(kolumna![1]).toContain('flex-direction: column');
+      expect(kolumna![1]).not.toContain('column-reverse');
+    });
+
+    it('w arkuszu nie ma śladu po mechanizmie rezerwy --consent-h', () => {
+      expect(css()).not.toContain('--consent-h');
+    });
 
     /**
-     * Baner jedzie z serwera, a mierzy się dopiero po hydracji. W tym oknie
-     * rezerwację trzyma sam CSS: paczka daje `--consent-zapas` z wartością
-     * domyślną, landing może ją nadpisać. Wartość nie może być mniejsza niż
-     * realna wysokość banera na telefonie, bo wtedy okno przed hydracją
-     * odsłania dokładnie ten fragment przycisku, o który chodziło.
+     * Rezerwa `--consent-h` z wariantu paskowego (do v1) odeszła w całości —
+     * overlay nie leży trwale na treści. Połowicznie przywrócony mechanizm
+     * (np. sam zapas albo doliczenie w calc()) zostawia martwy odstęp u dołu
+     * strony, którego nic już nie zeruje.
      */
-    it('zapas przed hydracją nie jest mniejszy niż zmierzona wysokość banera', () => {
-      const nadpisanie = opcje.sciezkaZapasu
-        ? readFileSync(path.resolve(process.cwd(), opcje.sciezkaZapasu), 'utf8').match(
-            /--consent-zapas:\s*(\d+)px/,
-          )
-        : null;
-      const zapas = nadpisanie ? Number(nadpisanie[1]) : ZAPAS_DOMYSLNY;
-      expect(zapas).toBeGreaterThanOrEqual(opcje.wysokoscNaTelefonie);
-    });
+    for (const plik of opcje.plikiBezSladu ?? []) {
+      it(`${plik} nie ma śladu po --consent-h ani --consent-zapas`, () => {
+        const tresc = readFileSync(path.resolve(process.cwd(), plik), 'utf8');
+        expect(tresc).not.toContain('--consent-h');
+        expect(tresc).not.toContain('--consent-zapas');
+      });
+    }
 
     if (opcje.sciezkaLayoutu) {
       /**
        * Klucz żyje w dwóch miejscach naraz: w banerze i w skrypcie inline.
        * Rozjechanie literałów nie wywala niczego — po prostu każdy powrót na
-       * stronę zaczyna się od banera, którego nikt już nie chciał oglądać.
+       * stronę zaczyna się od overlaya, którego nikt już nie chciał oglądać.
        */
       it('skrypt inline w layoucie używa tego samego klucza co baner', () => {
         const layout = readFileSync(path.resolve(process.cwd(), opcje.sciezkaLayoutu!), 'utf8');
@@ -393,74 +349,4 @@ export function kontraktBaneraZgody(opcje: OpcjeKontraktu): void {
       });
     }
   });
-}
-
-/**
- * Wycina WSZYSTKIE bloki reguł dla podanego selektora. Skan po tekście, nie regex
- * budowany z selektora: kropki i nawiasy w selektorach CSS trzeba by escapować,
- * a pomyłka w escapowaniu daje test, który zawsze przechodzi. Selektor musi stać
- * samodzielnie, więc `.quiz` nie złapie `.quiz-nawigacja`.
- *
- * Wszystkie, a nie pierwszą — ten sam selektor zwykle wraca w media query
- * i to właśnie tam rezerwa najczęściej ginie.
- */
-function znajdzReguly(tresc: string, selektor: string): string[] {
-  const znalezione: string[] = [];
-  let od = 0;
-  while ((od = tresc.indexOf(selektor, od)) !== -1) {
-    const koniecSelektora = od + selektor.length;
-    const poprzedni = od === 0 ? '\n' : tresc[od - 1];
-    const nastepny = tresc[koniecSelektora] ?? '';
-    if (/[\s,{}]/.test(poprzedni) && /[\s,{]/.test(nastepny)) {
-      const otwarcie = tresc.indexOf('{', koniecSelektora);
-      const zamkniecie = tresc.indexOf('}', otwarcie);
-      if (otwarcie !== -1 && zamkniecie !== -1) znalezione.push(tresc.slice(od, zamkniecie + 1));
-    }
-    od = koniecSelektora;
-  }
-  return znalezione;
-}
-
-/**
- * Atrapa `ResizeObserver`. jsdom go nie ma, a to właśnie ścieżka z obserwatorem
- * wykonuje się w prawdziwej przeglądarce — bez atrapy testy sprawdzałyby
- * wyłącznie awaryjne obejście dla środowiska testowego.
- */
-class AtrapaObserwatora {
-  static instancje: AtrapaObserwatora[] = [];
-  cele: Element[] = [];
-  odlaczony = false;
-  oddzwon: () => void;
-
-  constructor(oddzwon: () => void) {
-    this.oddzwon = oddzwon;
-    AtrapaObserwatora.instancje.push(this);
-  }
-
-  observe(element: Element) {
-    this.cele.push(element);
-  }
-
-  unobserve() {}
-
-  disconnect() {
-    this.odlaczony = true;
-  }
-}
-
-let opisObserwatora: PropertyDescriptor | undefined;
-
-function zainstalujObserwator() {
-  AtrapaObserwatora.instancje = [];
-  opisObserwatora ??= Object.getOwnPropertyDescriptor(globalThis, 'ResizeObserver');
-  Object.defineProperty(globalThis, 'ResizeObserver', {
-    configurable: true,
-    writable: true,
-    value: AtrapaObserwatora,
-  });
-}
-
-function przywrocObserwator() {
-  if (opisObserwatora) Object.defineProperty(globalThis, 'ResizeObserver', opisObserwatora);
-  else delete (globalThis as unknown as Record<string, unknown>).ResizeObserver;
 }

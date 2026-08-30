@@ -1,27 +1,22 @@
 /*
- * Udaje `globals.css` landingu. Paczka uruchamia na nim własny zestaw
- * kontraktowy, żeby zestaw był sprawdzony ZANIM trafi do repo klienta —
- * test, który nigdy nie był czerwony, nie jest testem.
+ * Udaje `globals.css` landingu PO migracji z paska na overlay. Paczka
+ * uruchamia na nim sprawdzenie `plikiBezSladu`: przy pasku ten plik doliczał
+ * rezerwę wysokości banera do dolnego odstępu, a po migracji nie może po niej
+ * zostać ślad — martwego odstępu nic już nie zeruje. Sprawdzenie jest tekstowe,
+ * więc nawet komentarz z nazwą tamtej zmiennej by je zapalił. I słusznie.
  */
 
 :root {
-  /* Baner tego „klienta" jest wyższy niż domyślny, więc podnosi zapas. */
-  --consent-zapas: 110px;
+  --kolor-marki: #b07d4a;
+  --consent-akcent: var(--kolor-marki);
 }
 
 .quiz {
-  padding: 24px 16px calc(24px + var(--consent-h, 0px));
+  padding: 24px 16px;
 }
 
-/* ⚠ Ta reguła jest w fixture celowo: to tutaj rezerwa najczęściej ginie.
-   Skrót `padding` w media query kasuje doliczenie z reguły bazowej. */
 @media (max-width: 620px) {
   .quiz {
-    padding: 16px 12px calc(16px + var(--consent-h, 0px));
+    padding: 16px 12px;
   }
-}
-
-.quiz-nawigacja {
-  position: sticky;
-  bottom: var(--consent-h, 0px);
 }

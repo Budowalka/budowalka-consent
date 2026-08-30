@@ -1,13 +1,13 @@
 'use client';
 
-import { createElement, useEffect, useRef, useState } from 'react';
+import { createElement, useEffect, useState } from 'react';
 import {
   ATRYBUT_ZGODY,
   ETYKIETA_ODMOWY_DOMYSLNA,
   ETYKIETA_ZGODY_DOMYSLNA,
+  NAGLOWEK_DOMYSLNY,
   TEKST_DOMYSLNY,
   ZGODA_PODJETA,
-  ZMIENNA_WYSOKOSCI,
   ladunekZgody,
 } from './stale';
 
@@ -18,46 +18,49 @@ export type WlasciwosciBanera = {
    * `skryptZgody({ klucz })` w layoucie — inaczej powracającemu baner mignie.
    */
   klucz: string;
+  naglowek?: string;
   /** Nadpisanie tekstu. Musi się mieścić w limicie słów, pilnuje tego zestaw kontraktowy. */
   tekst?: string;
   etykietaZgody?: string;
   etykietaOdmowy?: string;
-  /** Dodatkowa klasa dla landingów, które chcą dopiąć własne narzędzia (np. Tailwind). */
+  /** Dodatkowa klasa na karcie dla landingów, które chcą dopiąć własne narzędzia (np. Tailwind). */
   klasa?: string;
 };
 
 /**
- * Baner zgody na ciasteczka (Consent Mode v2) dla landingów kalkulatorowych.
+ * Baner zgody na ciasteczka (Consent Mode v2) dla landingów kalkulatorowych —
+ * od 30.08.2026 pełnoekranowy overlay z kartą, celowo wymuszający decyzję.
+ * Pasek na dole dawał za niski consent rate: dawało się go zignorować, więc
+ * większość ruchu nie podejmowała żadnej decyzji i Google nie zbierał danych.
  *
  * ⚠ DWIE RZECZY, KTÓRYCH NIE WOLNO TU ZMIENIĆ BEZ ZROZUMIENIA, PO CO SĄ:
  *
- * 1. `useState(true)`, nie `false`. Baner MUSI być w HTML z serwera. Wariant
+ * 1. `useState(true)`, nie `false`. Overlay MUSI być w HTML z serwera. Wariant
  *    z doklejaniem po `useEffect` kosztował na dwóch landingach około dwóch
- *    sekund LCP: pasek na całą szerokość pojawiał się po hydracji i przeglądarka
+ *    sekund LCP: element na cały ekran pojawiał się po hydracji i przeglądarka
  *    brała go za kandydata na element LCP. Powracającego przed mignięciem chroni
  *    skrypt inline z layoutu (`data-consent="decided"` + `display:none` w CSS).
  *
- * 2. Pomiar wysokości, nie stała. Baner stoi na `position: fixed` przy dolnej
- *    krawędzi, więc leży NA treści. 21.08.2026 zasłaniał przez to przycisk
- *    wysyłki na czterech landingach naraz — u Niezawodnych 89%, u trzech
- *    pozostałych 100% przy oknie 375×667. Wysokość zależy od szerokości ekranu
- *    i zawijania tekstu (zmierzone: 172 px przy 320 px szerokości, 150 px przy
- *    375 px), więc wpisana na sztywno liczba prędzej czy później znowu przykryje
- *    przycisk. Baner publikuje POMIAR jako `--consent-h`, a strona dolicza go
- *    do dolnego odstępu.
+ * 2. Obie opcje odblokowują stronę TAK SAMO. Scroll blokuje czysty CSS
+ *    (`html:not([data-consent='decided']) body { overflow: hidden }`), a zdejmuje
+ *    go atrybut `decided` — stawiany i po zgodzie, i po odmowie. Odmowa jest
+ *    pełnowymiarowym przyciskiem, nie linkiem: cookie wall (dostęp tylko po
+ *    zgodzie) jest nielegalny wg EDPB 05/2020, a ukryta odmowa kosztowała
+ *    Google 325 mln € kary. Modal wymuszający DECYZJĘ z odmową o tym samym
+ *    koszcie kliknięcia jest standardem rynkowym.
  *
- * Rola `region`, nie `dialog`: baner niczego nie blokuje i nie przechwytuje
- * fokusu, a `dialog` bez pułapki fokusu wprowadza czytnik ekranu w błąd.
+ * Mechanizm pomiaru `--consent-h` zniknął razem z paskiem: overlay nie leży
+ * trwale na treści, więc strona nie musi już rezerwować pod nim miejsca.
  */
 export function BanerZgody({
   klucz,
+  naglowek = NAGLOWEK_DOMYSLNY,
   tekst = TEKST_DOMYSLNY,
   etykietaZgody = ETYKIETA_ZGODY_DOMYSLNA,
   etykietaOdmowy = ETYKIETA_ODMOWY_DOMYSLNA,
   klasa,
 }: WlasciwosciBanera) {
   const [widoczny, setWidoczny] = useState(true);
-  const kontener = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let zapisana: string | null = null;
@@ -76,31 +79,6 @@ export function BanerZgody({
     // konwersje — lecą w trybie odmowy mimo udzielonej zgody.
     if (zapisana === 'granted') przekazDoGtag('granted');
   }, [klucz]);
-
-  useEffect(() => {
-    const korzen = document.documentElement;
-    const element = kontener.current;
-    const zeruj = () => korzen.style.setProperty(ZMIENNA_WYSOKOSCI, '0px');
-
-    if (!widoczny || !element) {
-      zeruj();
-      return;
-    }
-
-    const zmierz = () => korzen.style.setProperty(ZMIENNA_WYSOKOSCI, `${element.offsetHeight}px`);
-    zmierz();
-
-    // jsdom nie ma ResizeObserver — bez tego guardu testy padają na starcie.
-    if (typeof ResizeObserver === 'undefined') return zeruj;
-
-    // Wysokość zmienia się przy obrocie telefonu i zmianie zawijania tekstu.
-    const obserwator = new ResizeObserver(zmierz);
-    obserwator.observe(element);
-    return () => {
-      obserwator.disconnect();
-      zeruj();
-    };
-  }, [widoczny]);
 
   function zdecyduj(wybor: 'granted' | 'denied') {
     try {
@@ -123,32 +101,37 @@ export function BanerZgody({
    * więc bez tego testy padają na „React is not defined". Sprawdzone na świeżej
    * instalacji: to była jedyna rzecz, która nie działała out of the box.
    *
-   * Kolejność w DOM: NAJPIERW zgoda, potem odmowa. Na telefonie przyciski
-   * układają się w kolumnę i „Zgadzam się" ma stać na górze; w rzędzie ma być
-   * po prawej, co załatwia `row-reverse` w CSS. Robi to kolejność w DOM,
-   * a nie `column-reverse`, żeby czytnik ekranu czytał to samo, co widać.
+   * Kolejność w DOM: NAJPIERW zgoda, potem odmowa. Przyciski stoją w kolumnie
+   * na każdej szerokości (karta jest wąska), „Zgadzam się" na górze — robi to
+   * kolejność w DOM, nie `column-reverse`, żeby czytnik ekranu czytał to samo,
+   * co widać.
    */
   return createElement(
     'div',
     {
-      ref: kontener,
-      className: klasa ? `consent-banner ${klasa}` : 'consent-banner',
-      role: 'region',
+      className: 'consent-overlay',
+      role: 'dialog',
+      'aria-modal': 'true',
       'aria-label': 'Zgoda na ciasteczka',
     },
-    createElement('p', { className: 'consent-tekst' }, tekst),
     createElement(
       'div',
-      { className: 'consent-przyciski' },
+      { className: klasa ? `consent-banner ${klasa}` : 'consent-banner' },
+      createElement('h2', { className: 'consent-naglowek' }, naglowek),
+      createElement('p', { className: 'consent-tekst' }, tekst),
       createElement(
-        'button',
-        { type: 'button', className: 'consent-tak', onClick: () => zdecyduj('granted') },
-        etykietaZgody,
-      ),
-      createElement(
-        'button',
-        { type: 'button', className: 'consent-nie', onClick: () => zdecyduj('denied') },
-        etykietaOdmowy,
+        'div',
+        { className: 'consent-przyciski' },
+        createElement(
+          'button',
+          { type: 'button', className: 'consent-tak', onClick: () => zdecyduj('granted') },
+          etykietaZgody,
+        ),
+        createElement(
+          'button',
+          { type: 'button', className: 'consent-nie', onClick: () => zdecyduj('denied') },
+          etykietaOdmowy,
+        ),
       ),
     ),
   );

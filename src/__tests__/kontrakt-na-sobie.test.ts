@@ -10,12 +10,8 @@ import { kontraktBaneraZgody } from '../../testy/kontrakt';
 kontraktBaneraZgody({
   element: () => createElement(BanerZgody, { klucz: 'fixture_consent' }),
   klucz: 'fixture_consent',
-  sciezkaZapasu: 'src/__tests__/fixture-globals.css',
-  rezerwa: [
-    { plik: 'src/__tests__/fixture-globals.css', selektor: '.quiz' },
-    { plik: 'src/__tests__/fixture-globals.css', selektor: '.quiz-nawigacja' },
-    // Wariant tailwindowy — klasa arbitralna w JSX zamiast reguły CSS.
-    { plik: 'src/__tests__/fixture-strona.tsx', wzorzec: /pb-\[calc\([^\]]*var\(--consent-h[^\]]*\]/ },
-  ],
-  wysokoscNaTelefonie: 87,
+  // Tu arkusz leży w repo, nie w node_modules — landingi zostawiają domyślną ścieżkę.
+  sciezkaArkusza: 'src/baner-zgody.css',
+  // Udawany landing po migracji z paska: nie może w nim zostać ślad po rezerwie.
+  plikiBezSladu: ['src/__tests__/fixture-globals.css'],
 });
