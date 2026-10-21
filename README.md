@@ -31,7 +31,7 @@ sekcje 9b (historia paska) i 9d (overlay).
 ## Instalacja
 
 ```bash
-npm i "@budowalka/baner-zgody@github:Budowalka/budowalka-consent#v2.0.0"
+npm i "@budowalka/baner-zgody@github:Budowalka/budowalka-consent#v2.1.0"
 ```
 
 Paczka nie idzie przez żaden rejestr — repo jest publiczne, więc instalacja
@@ -152,6 +152,56 @@ Tekst musi się zmieścić w szesnastu słowach — zestaw kontraktowy tego piln
 Dłuższy spycha przyciski w dół, a na telefonie karta stoi przy dolnej krawędzi
 i przyciski muszą zostać w zasięgu kciuka bez przewijania.
 
+## Licznik odpływu na banerze (v2.1)
+
+Od v2.1 paczka liczy, ile osób z reklam zamyka stronę na banerze, zanim
+cokolwiek wybierze (plan `google-ads-mcp/docs/PLAN-pomiar-baneru-zgody-2026-10-21.md`).
+GA4 nie pokazuje wizyt bez zgody, więc bez tego nie da się oddzielić odmów
+od wyjść. Trzy zdarzenia trafiają do Vercel Web Analytics projektu, każde
+z właściwościami `reklama` (tak/nie) i `firma`:
+
+| Zdarzenie | Skąd |
+|---|---|
+| `baner_wejscie` | proxy/middleware landingu, z żądania dokumentu HTML (bez zasobów, prefetchu i botów) |
+| `baner_zgoda`, `baner_odmowa` | trasa `POST /api/zgoda-licznik`, którą baner woła po kliknięciu |
+
+Nic nie idzie z urządzenia przed decyzją, nic nie jest na nim zapisywane,
+a wartość `gclid` nie wychodzi nigdzie (tylko tak/nie). Wysyłka idzie przez
+własną domenę na `/_vercel/insights/event` bez ciasteczek i bez strony
+odsyłającej (dlaczego nie `track()` z `@vercel/analytics`: komentarz
+w `src/licznik-serwer.ts`). W projekcie Vercela musi być włączone Web Analytics.
+
+Wpięcie w landingu:
+
+```ts
+// src/middleware.ts (Next 15) albo src/proxy.ts (Next 16)
+import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server';
+import { zliczWejscie } from '@budowalka/baner-zgody/serwer';
+
+export function middleware(req: NextRequest, ev: NextFetchEvent) {
+  try {
+    const p = zliczWejscie(req, 'firma');
+    if (p) ev.waitUntil(p);
+  } catch {}
+  return NextResponse.next();
+}
+export const config = {
+  matcher: ['/((?!api/|_next/|_vercel/|polityka-prywatnosci|.*\\..*).*)'],
+};
+```
+
+```ts
+// src/app/api/zgoda-licznik/route.ts
+import { obsluzLicznik } from '@budowalka/baner-zgody/serwer';
+export const POST = (req: Request) => obsluzLicznik(req, 'firma');
+```
+
+Komponent `BanerZgody` z paczki wysyła decyzję sam. Landing z lokalną kopią
+banera woła `wyslijDecyzje(wybor === 'granted' ? 'zgoda' : 'odmowa')`
+(import z `@budowalka/baner-zgody`) w funkcji decyzji, po `setAttribute`.
+Do polityki prywatności dochodzi jedno zdanie o zbiorczym liczeniu wejść
+i wyborów w okienku zgody.
+
 ## Czego paczka celowo nie robi
 
 - **Nie robi odmowy trudniejszą od zgody.** Oba przyciski dzielą jedną regułę
@@ -178,7 +228,7 @@ i przyciski muszą zostać w zasięgu kciuka bez przewijania.
 ## Aktualizacja
 
 ```bash
-npm i "@budowalka/baner-zgody@github:Budowalka/budowalka-consent#v2.0.0"
+npm i "@budowalka/baner-zgody@github:Budowalka/budowalka-consent#v2.1.0"
 npm test
 ```
 

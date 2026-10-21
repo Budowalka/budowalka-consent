@@ -1,6 +1,6 @@
 {
   "name": "@budowalka/baner-zgody",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Baner zgody na ciasteczka (Consent Mode v2) dla landingów kalkulatorowych Budowalki — pełnoekranowy overlay z kartą, scroll zablokowany czystym CSS do podjęcia decyzji, obie opcje równorzędne.",
   "license": "UNLICENSED",
   "repository": {
@@ -12,6 +12,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./css": "./src/baner-zgody.css",
+    "./serwer": "./src/licznik-serwer.ts",
     "./testy": "./testy/kontrakt.ts"
   },
   "files": ["src", "testy", "README.md"],

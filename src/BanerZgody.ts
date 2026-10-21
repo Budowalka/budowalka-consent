@@ -10,6 +10,7 @@ import {
   ZGODA_PODJETA,
   ladunekZgody,
 } from './stale';
+import { wyslijDecyzje } from './licznik';
 
 export type WlasciwosciBanera = {
   /**
@@ -89,6 +90,9 @@ export function BanerZgody({
     document.documentElement.setAttribute(ATRYBUT_ZGODY, ZGODA_PODJETA);
     przekazDoGtag(wybor);
     setWidoczny(false);
+    // Pomiar odpływu na banerze (plan 21.10.2026): dopiero po zapisie decyzji
+    // i zdjęciu blokady, żeby wysyłka nie mogła opóźnić ani zablokować strony.
+    wyslijDecyzje(wybor === 'granted' ? 'zgoda' : 'odmowa');
   }
 
   if (!widoczny) return null;

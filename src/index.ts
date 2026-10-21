@@ -7,3 +7,4 @@ export {
   TEKST_DOMYSLNY,
   ZGODA_PODJETA,
 } from './stale';
+export { czyZReklamy, wyslijDecyzje, ADRES_LICZNIKA } from './licznik';
